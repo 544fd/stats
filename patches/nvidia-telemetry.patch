@@ -88,7 +88,7 @@ index 1cf4d19..6bcd5f9 100644
 @@ -140,6 +153,7 @@ internal class InfoReader: Reader<GPUs> {
              let tilerUtilization: Int? = stats["Tiler Utilization %"] as? Int
              let memory = stats["In use system memory"] as? Int
-+            let temperature = stats["Temperature(C)"] as? Int
++            let temperature = stats["GPU Temperature(C)"] as? Int ?? stats["Temperature(C)"] as? Int
              
 -            if ioClass == "nvaccelerator" || ioClass.contains("nvidia") { // nvidia
 +            if ioClass == "nvaccelerator" || ioClass.contains("nvidia") || ioClass.hasPrefix("nvaccel") { // nvidia
