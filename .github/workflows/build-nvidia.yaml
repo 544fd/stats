@@ -1,0 +1,44 @@
+name: build-nvidia
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - 'patches/nvidia-telemetry.patch'
+      - '.github/workflows/build-nvidia.yaml'
+
+concurrency:
+  group: build-nvidia-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pin upstream tag and apply the NVIDIA telemetry patch
+        run: |
+          cp patches/nvidia-telemetry.patch "$RUNNER_TEMP"
+          git fetch --depth 1 origin refs/tags/v3.1.1:refs/tags/v3.1.1
+          git checkout --detach v3.1.1
+          git apply --check "$RUNNER_TEMP/nvidia-telemetry.patch"
+          git apply "$RUNNER_TEMP/nvidia-telemetry.patch"
+
+      - run: xcodebuild -scheme Stats -destination 'platform=macOS' -configuration Release archive CODE_SIGNING_ALLOWED=NO
+
+      - name: Ad-hoc sign and zip the built app
+        run: |
+          archive=$(ls -td ~/Library/Developer/Xcode/Archives/*/*.xcarchive | head -1)
+          app="$archive/Products/Applications/Stats.app"
+          codesign --force --deep --sign - "$app"
+          ditto -c -k --sequesterRsrc --keepParent "$app" Stats-nvidia.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Stats-nvidia
+          path: Stats-nvidia.zip
+          retention-days: 30
