@@ -1,0 +1,114 @@
+diff --git a/Modules/GPU/main.swift b/Modules/GPU/main.swift
+index c87242b..ddc7302 100644
+--- a/Modules/GPU/main.swift
++++ b/Modules/GPU/main.swift
+@@ -41,4 +41,6 @@ public struct GPU_Info: Codable {
+     public var memoryLimit: Double? = nil
+     
++    public var temperature: Double? = nil
++    
+     init(id: String, type: GPU_type, IOClass: String, model: String, utilization: Double? = nil, render: Double? = nil, tiler: Double? = nil) {
+         self.id = id
+@@ -226,4 +228,5 @@ public class GPU: Module {
+                     case "$memory": replacement = Units(bytes: Int64(selectedGPU.memory ?? 0)).getReadableMemory(style: .memory)
+                     case "$fps": replacement = "\(Int((selectedGPU.fps ?? 0).rounded()))"
++                    case "$temperature": replacement = selectedGPU.temperature.map { temperature($0) } ?? ""
+                     default: return
+                     }
+diff --git a/Modules/GPU/popup.swift b/Modules/GPU/popup.swift
+index 8e611f0..d9077e4 100644
+--- a/Modules/GPU/popup.swift
++++ b/Modules/GPU/popup.swift
+@@ -17,5 +17,5 @@ internal class Popup: PopupWrapper {
+     private let dashboardHeight: CGFloat = 90
+     private let chartHeight: CGFloat = 90 + Constants.Popup.separatorHeight
+-    private let detailsHeight: CGFloat = (22*4) + Constants.Popup.separatorHeight
++    private let detailsHeight: CGFloat = (22*5) + Constants.Popup.separatorHeight
+     
+     private let loadCache = PopupCache<GPU_Info>()
+@@ -49,4 +49,5 @@ internal class Popup: PopupWrapper {
+     private var memoryField: NSTextField? = nil
+     private var fpsField: NSTextField? = nil
++    private var temperatureField: NSTextField? = nil
+     
+     public init(_ module: ModuleType) {
+@@ -78,4 +79,5 @@ internal class Popup: PopupWrapper {
+         self.memoryField = nil
+         self.fpsField = nil
++        self.temperatureField = nil
+     }
+     
+@@ -166,4 +168,5 @@ internal class Popup: PopupWrapper {
+         self.memoryField = popupRow(container, title: "\(localizedString("Memory usage")):", value: "").1
+         self.fpsField = popupRow(container, title: "\("FPS"):", value: "").1
++        self.temperatureField = popupRow(container, title: "\(localizedString("Temperature")):", value: "").1
+         
+         view.addSubview(separator)
+@@ -274,4 +277,7 @@ internal class Popup: PopupWrapper {
+             self.fpsField?.stringValue = "\(Int(fps.rounded()))"
+         }
++        if let v = value.temperature {
++            self.temperatureField?.stringValue = temperature(v)
++        }
+         
+         self.chart?.display()
+diff --git a/Modules/GPU/reader.swift b/Modules/GPU/reader.swift
+index 1cf4d19..6bcd5f9 100644
+--- a/Modules/GPU/reader.swift
++++ b/Modules/GPU/reader.swift
+@@ -22,7 +22,20 @@ public struct device {
+ let vendors: [Data: String] = [
+     Data.init([0x86, 0x80, 0x00, 0x00]): "Intel",
+-    Data.init([0x02, 0x10, 0x00, 0x00]): "AMD"
++    Data.init([0x02, 0x10, 0x00, 0x00]): "AMD",
++    Data.init([0xde, 0x10, 0x00, 0x00]): "NVIDIA"
+ ]
+ 
++private func pciMatches(_ accMatch: String, _ pci: String) -> Bool {
++    if accMatch.range(of: pci) != nil {
++        return true
++    }
++    // third-party drivers may advertise only the vendor half, eg "0x000010de&0x0000ffff"
++    let value = accMatch.components(separatedBy: "&").first ?? ""
++    guard value.hasPrefix("0x0000"), value.count == 10 else {
++        return false
++    }
++    return value.suffix(4) == pci.suffix(4)
++}
++
+ private func maxANEPower(for platform: Platform?) -> Double {
+     switch platform {
+@@ -123,5 +136,5 @@ internal class InfoReader: Reader<GPUs> {
+             
+             for (i, device) in devices.enumerated() {
+-                if accMatch.range(of: device.pci) != nil && !device.used {
++                if pciMatches(accMatch, device.pci) && !device.used {
+                     model = device.model
+                     vendor = device.vendor
+@@ -140,6 +153,7 @@ internal class InfoReader: Reader<GPUs> {
+             let tilerUtilization: Int? = stats["Tiler Utilization %"] as? Int
+             let memory = stats["In use system memory"] as? Int
++            let temperature = stats["Temperature(C)"] as? Int
+             
+-            if ioClass == "nvaccelerator" || ioClass.contains("nvidia") { // nvidia
++            if ioClass == "nvaccelerator" || ioClass.contains("nvidia") || ioClass.hasPrefix("nvaccel") { // nvidia
+                 predictModel = "Nvidia Graphics"
+                 type = .discrete
+@@ -212,4 +226,7 @@ internal class InfoReader: Reader<GPUs> {
+                 self.gpus.list[idx].memoryLimit = Double(sysctlByName("iogpu.wired_limit_mb"))
+             }
++            if let value = temperature {
++                self.gpus.list[idx].temperature = Double(value)
++            }
+         }
+         
+diff --git a/Modules/GPU/settings.swift b/Modules/GPU/settings.swift
+index 0f4ef07..dd03a6a 100644
+--- a/Modules/GPU/settings.swift
++++ b/Modules/GPU/settings.swift
+@@ -30,4 +30,5 @@ You can use a combination of any of the variables.
+ <li><b>$memory</b>: <small>GPU memory usage.</small></li>
+ <li><b>$fps</b>: <small>Frames per second.</small></li>
++<li><b>$temperature</b>: <small>GPU temperature.</small></li>
+ </ul>
+ """
